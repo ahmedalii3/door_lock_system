@@ -1,0 +1,119 @@
+/*
+ * Cont_ECU.c
+ *
+ *  Created on: Jul 27, 2024
+ *      Author: DELL
+ */
+#include"lcd/lcd.h"
+#include"uart/uart.h"
+#include <util/delay.h> /* For the delay functions */
+#include "gpio/gpio.h"
+#include "dc_motor/dc_motor.h"
+#include"buzzer/buzzer.h"
+#include"eeprom/eeprom.h"
+#include"twi/twi.h"
+#include"timer/timer.h"
+typedef enum{
+	MATCH,
+	NOT_MATCH
+}Key_Match;
+uint8 count = 1;
+void door_handle();
+int main(void)
+{
+		uint8 val;
+		uint8 key_one[5];
+		uint8 key_two[5];
+		uint8 key_check[5];
+		uint8 key;
+		Key_Match match = MATCH;
+
+		UART_ConfigType conf;
+		conf.baud_rate = 9600;
+		conf.bit_data  = EIGT;
+		conf.parity    = EVEN;
+		conf.stop_bit  = ONE_BIT;
+
+		TWI_ConfigType t_conf;
+		t_conf.address= 10;
+		t_conf.bit_rate = 400000;
+
+		Timer1_ConfigType time_conf;
+		time_conf.initial_value = 0;
+		time_conf.mode = COMPARE;
+		time_conf.prescaler = ONE_ZERO_TWO_FOUR;
+		//compare each 3 seconds
+		time_conf.compare_value = 23437;
+
+
+
+		UART_init(&conf);
+		Buzzer_init();
+		DcMotor_Init();
+		TWI_init(&t_conf);
+
+
+
+    while(1)
+    {
+
+    	for(int i = 0; i < 5; i++){
+    		key = UART_recieveByte();
+    		key_one[i] = key;
+
+
+    	}
+    	for(int i = 0; i < 5; i++){
+			key = UART_recieveByte();
+			key_two[i] = key;
+
+		}
+    	for(int i = 0; i < 5; i++){
+			if(key_one[i] != key_two[i]){
+				match = NOT_MATCH;
+			}
+		}
+    	if(match == NOT_MATCH){
+			UART_sendByte(NOT_MATCH);
+    	}else{
+
+    		for(int i = 0; i < 5; i++){
+    			EEPROM_writeByte(0x0311+i, key_one[i]);
+    			_delay_ms(30);
+    		}
+    		UART_sendByte(MATCH);
+    	}
+
+    	//recieving the password
+    	for(int i = 0; i < 5; i++){
+			key = UART_recieveByte();
+			key_check[i] = key;
+		}
+    	//check for openning the door or changing the password
+    	for(int i = 0; i < 5; i++){
+    		EEPROM_readByte(0x0311+i, &val );
+    		_delay_ms(30);
+			if(key_check[i] != val){
+				UART_sendByte(NOT_MATCH);
+			}else{
+				UART_sendByte(MATCH);
+				DcMotor_Rotate(CW,100);
+				Timer1_init(&time_conf);
+				Timer1_setCallBack(door_handle());
+			}
+		}
+
+    }
+}
+void door_handle(){
+	if(count == 5){
+		DcMotor_Rotate(stop,100);
+	}else if(count == 6){
+		DcMotor_Rotate(ACW,100);
+	}else if(count == 11){
+		DcMotor_Rotate(stop,100);
+	}
+
+
+
+}
